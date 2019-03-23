@@ -1,0 +1,784 @@
+<?xml version="1.0"?>
+<!DOCTYPE modification SYSTEM "http://www.simplemachines.org/xml/modification">
+<modification xmlns="http://www.simplemachines.org/xml/modification" xmlns:smf="http://www.simplemachines.org/">
+	<id>pftq:mailinglist</id>
+	<version>2.01</version>
+	
+	<file name="$boarddir/index.php">
+		<operation>
+			<search position="before"><![CDATA['unreadreplies' => array('Recent.php', 'UnreadTopics'),]]></search>
+			<add><![CDATA[
+					'unsubscribe' => array('mailingList_unsub.php', 'mailingList_unsub'),
+]]></add>
+		</operation>	
+	</file>
+	
+	<file name="$sourcedir/Post.php">
+		
+		<!-- Announce Topic -->
+		
+		<operation>
+			<search position="after"><![CDATA[// Select the email addresses for this batch.]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Get sender name
+			$sendername=$smcFunc['db_fetch_assoc']($smcFunc['db_query']('', "select real_name from {db_prefix}members where id_member=".$user_info['id']." limit 1"));
+			
+			// Check if topic is event; can choose different text to display (ie: view site for signups)
+			$echeck=$smcFunc['db_query']('', "select id_event from {db_prefix}calendar where id_topic=$topic");
+			if($smcFunc['db_num_rows']($echeck)>0) $eventis=true;
+			else $eventis=false;
+			$smcFunc['db_free_result']($echeck);
+			
+			// Check if any attachments
+			$acheck=$smcFunc['db_query']('', "select id_attach from {db_prefix}attachments where id_msg=$id_msg and attachment_type=0");
+			if($smcFunc['db_num_rows']($acheck)>0) {
+				$attach=array();
+				while($ac=$smcFunc['db_fetch_assoc']($acheck))
+					$attach[]="{$scripturl}?action=dlattach;topic=$topic;attach=".$ac['id_attach'];
+			}
+			else $attach=false;
+			$smcFunc['db_free_result']($acheck);
+			
+			// Don't send duplicate emails to those already receiving board announcements
+			$notifiedByBoard=array(-1);
+			$check=$smcFunc['db_query']('', "
+				SELECT
+				mem.id_member, mem.email_address, mem.notify_regularity, mem.notify_send_body, mem.lngfile,
+			ln.sent, ln.id_board, mem.id_group, mem.additional_groups, b.member_groups,
+			mem.id_post_group
+			". /* Integration w/ Notify Group */ (isset($txt['notifygroup'])? ", ng.id_board ":"")."
+			FROM {db_prefix}members AS mem
+			CROSS JOIN {db_prefix}boards AS b
+			LEFT JOIN {db_prefix}log_notify AS ln on (ln.id_board=b.id_board and mem.id_member = ln.id_member)
+			".(isset($txt['notifygroup'])? "
+			LEFT JOIN {db_prefix}notifygroup as ng on (ng.id_board=b.id_board and (
+				 mem.id_group=ng.id_group OR
+				 mem.id_post_group=ng.id_group OR
+				 FIND_IN_SET(ng.id_group, mem.additional_groups)))":"")."
+			WHERE (ln.id_board IN ({array_int:board_list})
+					".(isset($txt['notifygroup'])? "OR ng.id_board IN ({array_int:board_list})":"").")
+				".($modSettings['mailinglist_notifyownreplies']? "":
+				"AND mem.id_member != {int:current_member}"). /* pftq / Mailing List: Send own posts ? */ "
+				AND mem.is_activated = {int:is_activated}
+				AND mem.notify_types != {int:notify_types}
+				AND mem.notify_regularity < {int:notify_regularity}
+			AND mem.notify_announcements=1
+			GROUP BY mem.id_member",
+			array(
+				'current_member' => $user_info['id'],
+				'board_list' => array($board),
+				'is_activated' => 1,
+				'notify_types' => 4,
+				'notify_regularity' => 2,
+			)	 
+			);
+			while($a=$smcFunc['db_fetch_assoc']($check))
+				$notifiedByBoard[]=$a['id_member'];
+			$smcFunc['db_free_result']($check);
+			
+			
+			// pftq / Mailing List: Prevent spam filters from tagging this as spam. - Copied from ManageNews
+	
+			$mestemp = $message . strtr(parse_bbc(($attach? "<small>\n\n".$txt['mailinglist_attached']." \n".implode("\n", $attach)."</small>":"")."\n \n======================================== \n" . ($eventis? $txt['mailinglist_event']:$txt['mailinglist_announce']) . " \n" . $scripturl . '?topic=' . $topic . ".0 \n \n".($modSettings['mailinglist_announcenotify']? $txt['mailinglist_announce2']:$txt['mailinglist_announce3']). " \n" . $scripturl . '?action=notify;topic=' . $topic . ".0 \n \n".$txt['mailinglist_disable']." \n".$scripturl."?action=unsubscribe \n \n" . $txt['regards_team']), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+			
+			if (preg_match('~\<html~i', $mestemp) == 0)
+			{
+				if (preg_match('~\<body~i', $mestemp) == 0)
+					$mestemp = '<html><head><title>' . $context['topic_subject'] . '</title></head>' . "\n" . '<body>' . $mestemp . '</body></html>';
+				else
+					$mestemp = '<html>' . $mestemp . '</html>';
+			}
+			
+			// pftq / Mailing List: sendmail strips slashes for some reason
+				//$mestemp = addslashes($mestemp);
+			
+			]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[AND (mem.id_group IN ({array_int:group_list}) OR mem.id_post_group IN ({array_int:group_list}) OR FIND_IN_SET({raw:additional_group_list}, mem.additional_groups) != 0)]]></search>
+			<add><![CDATA[
+			'.(count($notifiedByBoard)>0? /* pftq / Mailing List: Don't send announcements to those already subscribed to board*/
+			'AND (mem.id_member NOT IN ('.implode(', ', $notifiedByBoard).'))':'').'
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[$message = trim(un_htmlspecialchars(strip_tags(strtr(parse_bbc($message, false, $id_msg), array('<br />' => "\n", '</div>' => "\n", '</li>' => "\n", '&#91;' => '[', '&#93;' => ']')))));]]></search>
+			<add><![CDATA[
+// pftq / Mailing List: Allow HTML
+	$message = strtr(parse_bbc($message), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+	$mestemp="";
+	
+]]></add>
+		</operation>
+		
+		<!-- Announce to self as well -->
+		<operation>
+			<search position="replace"><![CDATA[WHERE mem.id_member != {int:current_member}' . (!empty($modSettings['allow_disableAnnounce']) ? ']]></search>
+			<add><![CDATA[WHERE mem.id_member >=0 ' . (!empty($modSettings['allow_disableAnnounce']) ? ']]></add>
+		</operation>
+		
+		<!-- Remove "New Announcement: ", Send in Email Thread Format created above -->
+		<operation>
+			<search position="replace"><![CDATA[$emaildata = loadEmailTemplate('new_announcement', $replacements, $cur_language);
+
+			$announcements[$cur_language] = array(
+				'subject' => $emaildata['subject'],
+				'body' => $emaildata['body'],
+				'recipients' => array(),
+			);]]></search>
+			<add><![CDATA[//$emaildata = loadEmailTemplate('new_announcement', $replacements, $cur_language);
+
+			$announcements[$cur_language] = array(
+				'subject' => $context['topic_subject'],
+				'body' => $mestemp,
+				'recipients' => array(),
+			);]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[$announcements[$cur_language]['recipients'][$row['id_member']] = $row['email_address'];]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Auto Enable Notifications for Members Announced to
+			if($modSettings['mailinglist_announcenotify'])
+				$smcFunc['db_query']('', "INSERT INTO {db_prefix}log_notify (id_member, id_topic) VALUES (".$row['id_member'].", ".$topic.") ON CONFLICT DO NOTHING");
+			]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[sendmail($mail['recipients'], $mail['subject'], $mail['body'], null, null, false, 5);]]></search>
+			<add><![CDATA[sendmail($mail['recipients'], $mail['subject'], $mail['body'], ($modSettings['mailinglist_announcefrom']? un_htmlspecialchars($sendername['real_name']):null), null, true, 5);]]></add>
+		</operation>
+		
+		
+		<!-- Board Notifications -->
+		
+		<operation>
+			<search position="after"><![CDATA[// Find out what boards we have... and clear out any rubbish!]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Get sender name
+			$sendername=$smcFunc['db_fetch_assoc']($smcFunc['db_query']('', "select real_name from {db_prefix}members where id_member=".$user_info['id']));
+			
+			// Integration with Mail Read Tracker
+			if(file_exists('mailread.php')) $mailread=true;
+			else $mailread=false;
+			
+			]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[$topicData[$key]['body'] = trim(un_htmlspecialchars(strip_tags(strtr(parse_bbc($topicData[$key]['body'], false), array('<br />' => "\n", '</div>' => "\n", '</li>' => "\n", '&#91;' => '[', '&#93;' => ']')))));]]></search>
+			<add><![CDATA[
+		// pftq / Mailing List: Allow HTML
+		$topicData[$key]['body'] = strtr(parse_bbc($topicData[$key]['body']), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+		
+		// pftq / Mailing List: Check if topic is event; can choose different text to display (ie: view site for signups)
+		$echeck=$smcFunc['db_query']('', "select id_event from {db_prefix}calendar where id_topic=".$topicData[$key]['topic']);
+		if($smcFunc['db_num_rows']($echeck)>0) $topicData[$key]['eventis']=true;
+		else $topicData[$key]['eventis']=false;
+		$smcFunc['db_free_result']($echeck);
+		
+		// Check if any attachments
+		$acheck=$smcFunc['db_query']('', "select a.id_attach from {db_prefix}attachments as a, {db_prefix}topics as t where t.id_topic=".$topicData[$key]['topic']." and a.id_msg=t.id_first_msg and a.attachment_type=0");
+		if($smcFunc['db_num_rows']($acheck)>0) {
+			$attach=array();
+			while($ac=$smcFunc['db_fetch_assoc']($acheck))
+				$attach[]="{$scripturl}?action=dlattach;topic=".$topicData[$key]['topic'].";attach=".$ac['id_attach'];
+			$topicData[$key]['body'].="<small>\n\n{mailinglist_attached} \n".implode("\n", $attach)."</small>";
+		}
+		$smcFunc['db_free_result']($acheck);
+		
+		// Integration with MailRead
+		if($mailread) {
+			$acheck=$smcFunc['db_query']('', "select id_first_msg from {db_prefix}topics where id_topic=".$topicData[$key]['topic']." limit 1");
+			if($smcFunc['db_num_rows']($acheck)>0) {
+				$get=$smcFunc['db_fetch_assoc']($acheck);
+				$topicData[$key]['last_id']=$get['id_first_msg'];
+				$topicData[$key]['body'].="<img src=\"".str_replace("index.php", "", $scripturl)."mailread.php?member={mailreadMEMBERVAR};post=".$topicData[$key]['last_id']."\" alt='' width='1px' height='1px' />";
+			}
+			$smcFunc['db_free_result']($acheck);
+		}
+		
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[// Find the members with notification on for these boards.]]></search>
+			<add><![CDATA[
+	if($modSettings['mailinglist_notifyownreplies']) { //  pftq / Mailing List: Send own notifications?
+		$temp_user_id=$user_info['id'];
+		$user_info['id']=-1;
+	}]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[if ($topicData[$key]['poster'] == $rowmember['id_member'])
+				continue;]]></search>
+			<add><![CDATA[//if ($topicData[$key]['poster'] == $rowmember['id_member'])
+				//continue;]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[	while ($rowmember = $smcFunc['db_fetch_assoc']($members))]]></search>
+			<add><![CDATA[
+	if($modSettings['mailinglist_notifyownreplies']) { //  pftq / Mailing List: Send own notifications?
+		$user_info['id']=$temp_user_id;
+		unset($temp_user_id);
+	}
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[$send_body = empty($modSettings['disallow_sendBody']) && !empty($rowmember['notify_send_body']);]]></search>
+			<add><![CDATA[$send_body = true; //empty($modSettings['disallow_sendBody']) && !empty($rowmember['notify_send_body']); /* mailingList: Always send body */]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[$emaildata = loadEmailTemplate($emailtype, $replacements, $langloaded);]]></search>
+			<add><![CDATA[
+	// pftq / Mailing List: Prevent spam filters from tagging this as spam. - Copied from ManageNews
+	
+	$replacements['MESSAGE'] = $topicData[$key]['body'].
+			strtr(parse_bbc(
+			"\n\n========================================\n".
+			($topicData[$key]['eventis']? $txt['mailinglist_event']:$txt['mailinglist_announce']) . " \n" . $scripturl . '?topic=' . $topicData[$key]['topic'] . ".0 \n\n".
+			($modSettings['mailinglist_announcenotify']? $txt['mailinglist_announce2']:$txt['mailinglist_announce3']). " \n" . $scripturl . '?action=notify;topic=' . $topicData[$key]['topic'] . ".0 \n \n".
+			// Integrate with Notify Group
+			(!isset($txt['notifygroup_groupEmail'])||$rowmember['id_board']!=$topicData[$key]['board']? $txt['mailinglist_disableboard'] . ": \n" . $scripturl . '?action=notifyboard;board=' . $board . ".0\n\n" : $txt['notifygroup_groupEmail'].': '.$scripturl."?action=disableNotify\n\n")
+			.$txt['regards_team']), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+	
+	if (preg_match('~\<html~i', $replacements['MESSAGE']) == 0)
+	{
+		if (preg_match('~\<body~i', $replacements['MESSAGE']) == 0)
+			$replacements['MESSAGE'] = '<html><head><title>' . $topicData[$key]['subject'] . '</title></head>' . "\n" . '<body>' . $replacements['MESSAGE'] . '</body></html>';
+		else
+			$replacements['MESSAGE'] = '<html>' . $replacements['MESSAGE'] . '</html>';
+	}
+	
+	if($mailread) { // Integration with Mail Read
+		// Clear old logs
+		$smcFunc['db_query']('', "delete from {db_prefix}mailread where id_msg=".$topicData[$key]['last_id']." and id_member=".$rowmember['id_member']);
+				
+		// Insert new log
+		$smcFunc['db_query']('', "INSERT INTO {db_prefix}mailread (id_member, id_msg, mailsent) values(".$rowmember['id_member'].", ".$topicData[$key]['last_id'].", ".time().")");
+		$replacements['MESSAGE']=str_replace('{mailreadMEMBERVAR}', $rowmember['id_member'], $replacements['MESSAGE']);
+	}
+	
+	// pftq / Mailing List: Auto Enable Notifications for Members Announced to
+	if($modSettings['mailinglist_announcenotify'])
+		$smcFunc['db_query']('', "INSERT INTO {db_prefix}log_notify (id_member, id_topic) VALUES (".$rowmember['id_member'].", ".$topicData[$key]['topic'].") ON CONFLICT DO NOTHING");
+	
+	// pftq / Mailing List: sendmail strips slashes for some reason
+		//$replacements['MESSAGE'] = addslashes($replacements['MESSAGE']);
+		
+	// pftq / Mailing List: Send HTML formatted body + normal subject from the poster's name
+		sendmail($rowmember['email_address'], ($modSettings['mailinglist_encodesubject']? '=?UTF-8?B?'.base64_encode($replacements['TOPICSUBJECT']).'?=':$replacements['TOPICSUBJECT']), $replacements['MESSAGE'], un_htmlspecialchars($sendername['real_name']), 't'.$topicData[$key]['topic'], true, 3);
+			/*
+			]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[sendmail($rowmember['email_address'], $emaildata['subject'], $emaildata['body'], null, null, false, 3);]]></search>
+			<add><![CDATA[
+			*/]]></add>
+		</operation>
+
+	</file>
+	
+	<file name="$sourcedir/Subs-Post.php">
+		<!-- Notify Replies -->
+		
+		<operation>
+			<search position="after"><![CDATA[$topicData = array();]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Integration with Mail Read Tracker
+			if(file_exists('mailread.php'))
+				$mailread=true;
+			else $mailread=false;
+			]]>
+			</add>
+		</operation>
+	
+		<operation>
+			<search position="replace"><![CDATA[$row['body'] = trim(un_htmlspecialchars(strip_tags(strtr(parse_bbc($row['body'], false, $row['id_last_msg']), array('<br />' => "\n", '</div>' => "\n", '</li>' => "\n", '&#91;' => '[', '&#93;' => ']')))));]]></search>
+			<add><![CDATA[
+		// pftq / Mailing List: Check for attachments
+		$acheck=$smcFunc['db_query']('', "select id_attach from {db_prefix}attachments where id_msg=".$row['id_last_msg']." and attachment_type=0");
+		if($smcFunc['db_num_rows']($acheck)>0) {
+			$attach=array();
+			while($ac=$smcFunc['db_fetch_assoc']($acheck))
+				$attach[]="{$scripturl}?action=dlattach;topic=".$row['id_topic'].";attach=".$ac['id_attach'];
+			$row['body'].="<small>\n\n{mailinglist_attached} \n".implode("\n", $attach)."</small>";
+		}
+		$smcFunc['db_free_result']($acheck);
+		
+		if($mailread)
+			$row['body'].="<img src=\"".str_replace("index.php", "", $scripturl)."mailread.php?member={mailreadMEMBERVAR};post=".$row['id_last_msg']."\" alt='' width='1px' height='1px' />";
+		
+		// pftq / Mailing List: Retrieve previous posts as well
+		// Get the subject and body...
+			$old = $smcFunc['db_query']('', "
+				SELECT id_msg, subject, body, poster_name, poster_time
+				FROM {db_prefix}messages
+				WHERE id_topic = ".$row['id_topic']."
+					AND id_msg < ".$row['id_last_msg']."
+				ORDER BY id_msg DESC
+				LIMIT ".$modSettings['mailinglist_numreplies']);
+			$c=0;
+			while($get=$smcFunc['db_fetch_assoc']($old)) {
+				// Check if any attachments
+				$acheck=$smcFunc['db_query']('', "select id_attach from {db_prefix}attachments where id_msg=".$get['id_msg']." and attachment_type=0");
+				if(mysql_num_rows($acheck)>0) {
+					$attach=array();
+					while($ac=$smcFunc['db_fetch_assoc']($acheck))
+						$attach[]="{$scripturl}?action=dlattach;topic=".$row['id_topic'].";attach=".$ac['id_attach'];
+				}
+				else $attach=false;
+				$smcFunc['db_free_result']($acheck);
+				$row['body'].="\n\n<div class='quoteheader'>".$get['poster_name']." ".$txt['on']." ".timeformat($get['poster_time'], false)."</div><div class='quote' style='margin-left:2px; margin-top:2px; padding-top:10px; padding-left:10px; padding-bottom:5px; border-width:0px 0px 0px 1px; border-style:solid; border-color:#CCC;'>".$get['body'].($attach? "<small>\n\n{mailinglist_attached} \n".implode("\n", $attach)."</small>":"");
+				// Integration with Mail Read Tracker
+				if($mailread) {
+					if($smcFunc['db_num_rows']($smcFunc['db_query']('', "select id_msg from {db_prefix}mailread where id_msg='".$get['id_msg']."'"))>0)
+						$row['body'].="<img src=\"".str_replace("index.php", "", $scripturl)."mailread.php?member={mailreadMEMBERVAR};post=".$get['id_msg']."\" alt='' width='1px' height='1px' />";
+				}
+				$c++;
+			}
+			for($i=1; $i<=$c; $i++) $row['body'].="</div > ";
+			$smcFunc['db_free_result']($old);
+			
+			// pftq / Mailing List: Allow HTML
+			$row['body'] = strtr(parse_bbc($row['body']), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+]]></add>
+		</operation>	
+		
+		<operation>
+			<search position="before"><![CDATA[			'name' => $user_info['name'],
+			'exclude' => '',
+		);]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Get name for sender
+				if($user_info['id']!=0)
+					$topicData[$row['id_topic']]['sendername']=$smcFunc['db_fetch_assoc']($smcFunc['db_query']('', "select real_name from {db_prefix}members where id_member=".$user_info['id']));
+				else $topicData[$row['id_topic']]['sendername']="";
+	
+			// pftq / Mailing List: Set up temp account for guest posters
+			$topicData[$row['id_topic']]['guestThread']=false;
+			if($modSettings['mailinglist_ticketsys']) {
+				$firstPost=$smcFunc['db_fetch_assoc']($smcFunc['db_query']('', "select m.id_member, m.poster_name, m.poster_email from {db_prefix}messages as m, {db_prefix}topics as t where t.id_topic=".$row['id_topic']." and m.id_msg=t.id_first_msg"));
+				if($firstPost['id_member']==0) $topicData[$row['id_topic']]['guestThread']=true;
+				if($user_info['id']==0) 
+					$topicData[$row['id_topic']]['sendername']=array('real_name'=>$firstPost['poster_name']);
+			}
+			]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[// Find the members with notification on for this topic.]]></search>
+			<add><![CDATA[
+	if($modSettings['mailinglist_notifyownreplies']) { //  pftq / Mailing List: Send own notifications?
+		$temp_user_id=$user_info['id'];
+		$user_info['id']=-1;
+	}]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[			'members_only' => is_array($members_only) ? $members_only : array($members_only),
+		)
+	);
+	$sent = 0;]]></search>
+			<add><![CDATA[
+	if($modSettings['mailinglist_notifyownreplies']) { //  pftq / Mailing List: Send own notifications?
+		$user_info['id']=$temp_user_id;
+		unset($temp_user_id);
+	}
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[		// Easier to check this here... if they aren't the topic poster do they really want to know?
+		if ($type != 'reply' && $row['notify_types'] == 2 && $row['id_member'] != $row['id_member_started'])
+			continue;
+
+		if ($row['id_group'] != 1)
+		{]]></search>
+			<add><![CDATA[		// Easier to check this here... if they aren't the topic poster do they really want to know?
+		if ($type != 'reply' && $row['notify_types'] == 2 && $row['id_member'] != $row['id_member_started'])
+			continue;
+
+		// pftq / Mailing List: Fix for if additionalGroup is admin
+		// Allow thread starter to reply even if in restricted boards when ticket system enabled
+		if (!($row['id_member']==$row['id_member_started']&&$modSettings['mailinglist_ticketsys'])&&$row['id_group'] != 1 && !in_array(1, explode(',', $row['additional_groups']))) {]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[// Do they want the body of the message sent too?
+		if (!empty($row['notify_send_body']) && $type == 'reply' && empty($modSettings['disallow_sendBody']))
+		{
+			$message_type .= '_body';
+			$replacements['MESSAGE'] = $topicData[$row['id_topic']]['body'];
+		}]]></search>
+			<add><![CDATA[/*// Do they want the body of the message sent too?
+		if (!empty($row['notify_send_body']) && $type == 'reply' && empty($modSettings['disallow_sendBody']))
+		{
+			$message_type .= '_body';
+			$replacements['MESSAGE'] = $topicData[$row['id_topic']]['body'];
+		}*/]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[if (!empty($row['notify_regularity']) && $type == 'reply')]]></search>
+			<add><![CDATA[if (false && !empty($row['notify_regularity']) && $type == 'reply')]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[		if ($type != 'reply' || empty($row['notify_regularity']) || empty($row['sent']))
+		{
+			$emaildata = loadEmailTemplate($message_type, $replacements, $needed_language);]]></search>
+			<add><![CDATA[		if (true || $type != 'reply' || empty($row['notify_regularity']) || empty($row['sent']))
+		{
+			$emaildata = loadEmailTemplate($message_type, $replacements, $needed_language);
+			// pftq / Mailing List: Format text before inserting message.
+			$emaildata['body'] .= "\n\n" . $txt['regards_team'];
+			
+			$emaildata['body']=strtr(parse_bbc($emaildata['body']), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n"));
+			
+			// pftq / Mailing List: Send body if allowed, no profile settings needed
+			if ($type == 'reply' && empty($modSettings['disallow_sendBody']))
+				$emaildata['body'] = str_replace('{mailinglist_attached}', parse_bbc($txt['mailinglist_attached']), $topicData[$row['id_topic']]['body']). strtr(parse_bbc("\n========================================\n"), array('<br />' => "<br />\n", '</div>' => "</div>\n", '</p>'=>"</p>\n", '</li>' => "</li>\n")).$emaildata['body'];
+				
+			// This is here to prevent spam filters from tagging this as spam. - Copied from ManageNews
+			if (preg_match('~\<html~i', $emaildata['body']) == 0)
+			{
+				if (preg_match('~\<body~i', $emaildata['body']) == 0)
+					$emaildata['body'] = '<html><head><title>' . $emaildata['subject'] . '</title></head>' . "\n" . '<body>' . $emaildata['body'] . '</body></html>';
+				else
+					$emaildata['body'] = '<html>' . $emaildata['body'] . '</html>';
+			}
+		]]></add>
+		</operation>
+		
+		<operation>
+			<search position='replace'><![CDATA[sendmail($row['email_address'], $emaildata['subject'], $emaildata['body'], null, 'm' . $topicData[$row['id_topic']]['last_id']);]]></search>
+			<add><![CDATA[
+			
+			// pftq / Mailing List: sendmail strips slashes for some reason
+				//$emaildata['body'] = addslashes($emaildata['body']);
+			
+			if($topicData[$row['id_topic']]['guestThread']!==false) $message2=$emaildata['body'];
+			if($mailread) { // Integration with Mail Read
+				// Clear old logs
+				$smcFunc['db_query']('', "delete from {db_prefix}mailread where id_msg=".$topicData[$row['id_topic']]['last_id']." and id_member=".$row['id_member']);
+						
+				// Insert new log
+				$smcFunc['db_query']('', "INSERT INTO {db_prefix}mailread (id_member, id_msg, mailsent) values(".$row['id_member'].", ".$topicData[$row['id_topic']]['last_id'].", ".time().")");
+				$emaildata['body']=str_replace('{mailreadMEMBERVAR}', $row['id_member'], $emaildata['body']);
+				
+				if($topicData[$row['id_topic']]['guestThread']!==false) {
+					// Clear old logs
+					$smcFunc['db_query']('', "delete from {db_prefix}mailread where id_msg=".$topicData[$row['id_topic']]['last_id']." and id_member=0");
+							
+					// Insert new log
+					$smcFunc['db_query']('', "INSERT INTO {db_prefix}mailread (id_member, id_msg, mailsent) values(0, ".$topicData[$row['id_topic']]['last_id'].", ".time().")");
+					$message2=str_replace('{mailreadMEMBERVAR}', 0, $message2);
+				}
+			}
+			
+			if($modSettings['mailinglist_encodesubject'])
+				$ssubject='=?UTF-8?B?'.base64_encode($emaildata['subject']).'?=';
+			else
+				$ssubject=$emaildata['subject'];
+			
+			// Take the chance to send to the guest topic starter real quick
+			if($topicData[$row['id_topic']]['guestThread']!==false) {
+				sendmail($topicData[$row['id_topic']]['guestThread']['poster_email'], ("Re: ".$ssubject), $message2, un_htmlspecialchars($topicData[$row['id_topic']]['sendername']['real_name']), null, true);
+				$topicData[$row['id_topic']]['guestThread']=false;
+			}
+			
+			// pftq / Mailing List: Email-like subject, 4th param for name and last for HTML
+			sendmail($row['email_address'], ("Re: ".$ssubject), $emaildata['body'], un_htmlspecialchars($topicData[$row['id_topic']]['sendername']['real_name']), 'm' . $topicData[$row['id_topic']]['last_id'], true); ]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[list (, $subject) = mimespecialchars($subject, true, $hotmail_fix, $line_break);]]></search>
+			<add><![CDATA[
+			// pftq / Mailing List: Fix From headers so clients reply back to the forum email.
+			if($from_name!=$context['forum_name']) {
+				$from=(empty($modSettings['mail_from']) ? $webmaster_email : $modSettings['mail_from']);
+			}
+			]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$sourcedir/Profile-Modify.php">
+		
+		<operation>
+			<search position="replace"><![CDATA['notify_announcements' => $user_profile[$memID]['notify_announcements'],
+		'notify_send_body' => $user_profile[$memID]['notify_send_body'],
+		'notify_types' => $user_profile[$memID]['notify_types'],
+		'notify_regularity' => $user_profile[$memID]['notify_regularity'],]]></search>
+			<add><![CDATA[// pftq / Mailing List: Always send post body and send every reply
+			'notify_announcements' => $user_profile[$memID]['notify_announcements'],
+		'notify_send_body' => 1,
+		'notify_types' => $user_profile[$memID]['notify_types'],
+		'notify_regularity' => 0,]]></add>
+		</operation>
+
+	</file>
+	
+		<file name="$sourcedir/Admin.php">
+	
+		<operation>
+			<search position="before"><![CDATA[						// Mod Authors for a "ADD AFTER" on this line. Ensure you end your change with a comma. For example:
+						// 'shout' => array($txt['shout']),
+						// Note the comma!! The setting with automatically appear with the first mod to be added.]]></search>
+			<add><![CDATA[
+						'mailinglist' => array($txt['mailingList_settings']),]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$sourcedir/ManageSettings.php">
+	
+		<operation>
+			<search position="before"><![CDATA[// Mod authors, once again, if you have a whole section to add do it AFTER this line, and keep a comma at the end.]]></search>
+			<add><![CDATA[
+		'mailinglist' => 'mailingList_settings',]]></add>
+		</operation>
+		
+		<operation>
+			<search position="before"><![CDATA[		'description' => $txt['modification_settings_desc'],
+		'tabs' => array(
+			'general' => array(
+			),]]></search>
+			<add><![CDATA[
+			'mailinglist' => array(
+				'label'=> $txt['mailingList_settings'],
+			),]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[function ModifyLayoutSettings($return_config = false)]]></search>
+			<add><![CDATA[function mailingList_settings($return_config = false)
+{
+	// pftq / Mailing List: Get a list of boards.
+	global $modSettings, $webmaster_email, $txt, $scripturl, $context, $sc, $smcFunc;
+	$boards = array();
+	$request = $smcFunc['db_query']('order_by_board_order', '
+		SELECT b.id_board, b.name AS board_name, c.name AS cat_name
+		FROM {db_prefix}boards AS b
+			LEFT JOIN {db_prefix}categories AS c ON (c.id_cat = b.id_cat)',
+		array(
+		)
+	);
+	while ($row = $smcFunc['db_fetch_assoc']($request))
+		$boards[$row['id_board']] = $row['cat_name'] . ' - ' . $row['board_name'];
+	$smcFunc['db_free_result']($request);
+	
+	$config_vars = array(
+		// pftq / Mailing List: Settings
+			array('check', 'mailinglist_autoannounce', null, $txt['mailinglist_autoannounce_help']),
+			array('check', 'mailinglist_announcefrom', null, $txt['mailinglist_announcefrom_help']),
+			array('check', 'mailinglist_announcenotify', null, $txt['mailinglist_announcenotify_help']),
+			array('check', 'mailinglist_autonotify', null, $txt['mailinglist_autonotify_help']),
+			array('check', 'mailinglist_notifyownreplies', null, $txt['mailinglist_notifyownreplies_help']),
+			array('int', 'mailinglist_numreplies', null, $txt['mailinglist_numreplies_help']),
+			array('check', 'mailinglist_ticketsys', null, $txt['mailinglist_ticketsys_help']),
+			array('check', 'mailinglist_allowguests', null, $txt['mailinglist_allowguests_help']),
+			array('check', 'mailinglist_htmlemails', null, $txt['mailinglist_htmlemails_help']),
+			array('check', 'mailinglist_encodesubject', null, $txt['mailinglist_encodesubject_help']),
+			array('check', 'mailinglist_postvar', null, $txt['mailinglist_postvar_help']),
+			"",
+			"",
+			$txt['mailinglist_defaultboard_help'],
+			"",
+			$txt['mailinglist_defaultboard_email'].$webmaster_email,
+			array('select', 'mailinglist_board', $boards, $txt['mailinglist_defaultboard_board']),
+			array('text', 'mailinglist_prefix', null, $txt['mailinglist_defaultboard_prefix'])
+	);
+	
+	$existing=array();
+	$extraEmails=$smcFunc['db_fetch_assoc']($smcFunc['db_query']('', "SELECT COUNT(variable) as num from {db_prefix}settings where variable like 'mailinglist_board%'"));
+	for($i=1;$i<$extraEmails['num'];$i++) {
+		$config_vars[]="";
+		$config_vars[]=array('text', 'mailinglist_email'.$i, null, $txt['mailinglist_defaultboard_email']." <a href='" . $scripturl . "?action=admin;area=modsettings;sa=mailinglist;del=$i;sesc=$sc'>[X]</a>");
+		$config_vars[]=array('select', 'mailinglist_board'.$i, $boards, $txt['mailinglist_defaultboard_board']);
+		$config_vars[]=array('text', 'mailinglist_prefix'.$i, null, $txt['mailinglist_defaultboard_prefix']);
+		$existing[]='mailinglist_board'.$i;
+	}
+	
+	$config_vars[]="";
+	$config_vars[]="<a href='" . $scripturl . "?action=admin;area=modsettings;sa=mailinglist;add=$i;sesc=$sc'>".$txt['mailinglist_defaultboard_add']."</a>";
+	
+	$context['settings_title'] = $txt['mailingList_settings'];
+	$context['post_url'] = $scripturl . '?action=admin;area=modsettings;save;sa=mailinglist';
+	
+	if ($return_config)
+		return $config_vars;
+	
+	if (isset($_GET['add'])&&$_GET['add']==$i)
+	{
+		checkSession('get');
+
+		$settings = array(
+			'mailinglist_email'.$_GET['add'] => '',
+			'mailinglist_board'.$_GET['add'] => '1',
+			'mailinglist_prefix'.$_GET['add'] => '',
+		);
+		
+		foreach($settings as $k=>$v)
+			$smcFunc['db_query']('', "INSERT INTO {db_prefix}settings (variable, value) VALUES('$k', '$v')");
+
+		redirectexit('action=admin;area=modsettings;sa=mailinglist');
+	}
+	if (isset($_GET['del'])&&in_array('mailinglist_board' . $_GET['del'], $existing))
+	{
+		checkSession('get');
+
+		$settings = array(
+			'mailinglist_email'.$_GET['del'],
+			'mailinglist_board'.$_GET['del'],
+			'mailinglist_prefix'.$_GET['del'],
+		);
+		
+		foreach($settings as $v)
+			$smcFunc['db_query']('', "DELETE FROM {db_prefix}settings WHERE variable='$v'");
+		
+		$i=$_GET['del']+1;
+		while (in_array('mailinglist_board' . $i, $existing)) {
+			$settings = array(
+				'mailinglist_email'.($i-1) => 'mailinglist_email'.$i,
+				'mailinglist_board'.($i-1) => 'mailinglist_board'.$i,
+				'mailinglist_prefix'.($i-1) => 'mailinglist_prefix'.$i,
+			);
+		
+			foreach($settings as $k=>$v)
+				$smcFunc['db_query']('', "UPDATE {db_prefix}settings SET variable='$k' WHERE variable='$v'");
+			
+			$i++;
+		}
+		
+		redirectexit('action=admin;area=modsettings;sa=mailinglist');
+	}
+	
+	// Saving?
+	if (isset($_GET['save']))
+	{
+		saveDBSettings($config_vars);
+
+		writeLog();
+		
+		redirectexit('action=admin;area=modsettings;sa=mailinglist');
+	}
+	
+	prepareDBSettingContext($config_vars);
+}
+]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$themedir/languages/EmailTemplates.english.php">
+		<operation>
+			<search position="end" />
+			<add><![CDATA[
+	// pftq / Mailing List: Shorter, more concise text for emails.
+	$txt['emails']['notification_reply'] = array(
+		'subject' => '{TOPICSUBJECT}',
+		'body' => 
+'Reply to This Email or View Original Topic: 
+{TOPICLINK}
+
+Unsubscribe to this topic by using this link:
+{UNSUBSCRIBELINK}');
+			]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$themedir/languages/Post.english.php">
+		<operation>
+			<search position="end" />
+			<add><![CDATA[
+			// pftq / Mailing List: Shorter, more concise text for emails.
+			$txt['mailinglist_announce'] = "Reply to This Email or View Original Post: ";
+			$txt['mailinglist_announce2'] = "Unsubscribe from email replies for this topic: ";
+			$txt['mailinglist_announce3'] = "Subscribe to this topic for replies to be emailed: ";
+			$txt['mailinglist_event'] = "Reply to This Email or View Original Event: ";
+			$txt['mailinglist_disableboard'] = 'To disable notifications from this board, use the following link:';
+			$txt['mailinglist_disable'] = 'To disable all announcements, check notification settings in your profile or use the following link:';
+			$txt['mailinglist_attached'] = 'Download Attachment(s):';
+			]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$themedir/languages/Modifications.english.php">
+		<operation>
+			<search position="end" />
+			<add><![CDATA[
+			// pftq / Mailing List: Settings
+			$txt['mailingList_settings'] = "Mailing List Mod";
+			$txt['mailinglist_autoannounce_help'] = "Auto Announce and Notify for Topics Started by Email";
+			$txt['mailinglist_announcefrom_help'] = "Announce Emails From Poster Instead of Forum";
+			$txt['mailinglist_announcenotify_help'] = "Auto Notify for Topics Announced/Sent by Forum";
+			$txt['mailinglist_autonotify_help'] = "Auto Notify for Members Who Post By Email";
+			$txt['mailinglist_notifyownreplies_help'] = "Notify of Own Posts (like GoogleGroups)";
+			$txt['mailinglist_numreplies_help'] = "Max Quoted Replies Per Email";
+			$txt['mailinglist_ticketsys_help'] = "Allow Emails to Restricted Boards (Ticket System, Only See the Thread You Start)";
+			$txt['mailinglist_allowguests_help'] = "Allow Emails From Non-Members too (requires Ticket System option first)";
+			$txt['mailinglist_htmlemails_help'] = "Allow HTML Posts via Email";
+			$txt['mailinglist_encodesubject_help'] = "Encode Subjects in Base64 (check if special characters are causing trouble)";
+			$txt['mailinglist_postvar_help'] = "Use HTTP POST instead of email piping";
+			
+			$txt['mailinglist_defaultboard_help'] = "Boards to Put New Topics Started by Email";
+			$txt['mailinglist_defaultboard_email'] = "Sent to Email Address ";
+			$txt['mailinglist_defaultboard_board'] = "Goes to Board ";
+			$txt['mailinglist_defaultboard_prefix'] = "Optional Prefix to Subject ";
+			$txt['mailinglist_defaultboard_add'] = "Add Email";
+			
+			// pftq / Mailing List: Unsubscribe Option
+			$txt['mailingList_prefUpdated'] = 'Preferences updated for: ';
+			$txt['mailinglist_emailNotExist'] = 'Sorry, that email does not exist.';
+			$txt['mailingList_enterEmail'] = 'Enter the email you wish to update preferences for.';
+			$txt['mailingList_setOff'] = 'Disable Email Announcements';
+			$txt['mailingList_setOn'] = 'Enable Email Announcements';
+			]]></add>
+		</operation>
+		
+	</file>
+	
+	<file name="$themedir/languages/Modifications.german-utf8.php" error="skip">
+		<operation>
+			<search position="end" />
+			<add><![CDATA[
+		// pftq / Mailing List, German translation by Eggert Ehmke
+		   $txt['mailinglist_autoannounce_help'] = "Aktiviere Ank&uuml;ndigung und Benachrichtigungen f&uuml;r Themen, die per Email begonnen wurden";
+		   $txt['mailinglist_announcefrom_help'] = "Versende Ank&uuml;ndigungen durch Autor statt durch Forum";
+		   $txt['mailinglist_announcenotify_help'] = "Automatische Benachrichtigungen f&uuml;r Themen die im Forum angek&uuml;ndigt wurden";
+		   $txt['mailinglist_autonotify_help'] = "Automatische Benachrichtigungen f&uuml;r Mitglieder die per Email antworten";
+		   $txt['mailinglist_notifyownreplies_help'] = "Sende Benachrichtigungen von eigenen Antworten (wie GoogleGroups)";
+		   $txt['mailinglist_numreplies_help'] = "Maximale Zahl der Antworten bei Zitat per Email";
+		   $txt['mailinglist_ticketsys_help'] = "Erlauben Sie Emails an Restricted Boards (Ticket System, nur die Themen Sie Start)";
+		   $txt['mailinglist_allowguests_help'] = "Erlauben Sie E-Mails von Nicht-Mitgliedern zu (erfordert Ticket System zuerst die Option)";
+		   $txt['mailinglist_htmlemails_help'] = "Erlaube HTML beim Umwandeln von Emails zu Themen";
+		   $txt['mailinglist_postvar_help'] = "Benutze HTTP POST data statt lokalem Email Piping";
+		   $txt['mailinglist_encodesubject_help'] = "Encode Themen in Base64 (überprüfen, ob Sonderzeichen verursacht werden Probleme)";
+		   $txt['mailingList_prefUpdated'] = 'Einstellungen ge&auml;ndert f&uuml;r: ';
+		   $txt['mailinglist_emailNotExist'] = 'Tut mir leid, diese Email gibt es nicht.';
+		   $txt['mailingList_enterEmail'] = 'Gib die Email ein, f&uuml;r die du die Einstellungen &auml;ndern m&ouml;chtest.';
+		   $txt['mailingList_setOff'] = 'Deaktiviere Email Ank&uuml;ndigungen';
+		   $txt['mailingList_setOn'] = 'Aktiviere Email Ank&uuml;ndigungen';
+		   
+		   $txt['mailinglist_defaultboard_help'] = "Board f&uuml;r Themen, die per Email begonnen wurden";
+		   $txt['mailinglist_defaultboard_email'] = "Email ";
+			$txt['mailinglist_defaultboard_board'] = "Board";
+			$txt['mailinglist_defaultboard_prefix'] = "Optional Prefix zu Subject ";
+			$txt['mailinglist_defaultboard_add'] = "Hinzufügen Email";
+			]]></add>
+		</operation>
+		
+	</file>
+	
+</modification>

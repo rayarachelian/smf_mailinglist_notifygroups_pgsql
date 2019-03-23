@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE package-info SYSTEM "http://www.simplemachines.org/xml/package-info">
+<package-info xmlns="http://www.simplemachines.org/xml/package-info" xmlns:smf="http://www.simplemachines.org/">
+   <id>pftq:mailinglist</id>
+   <name>SMF Mailing List Mod</name>
+   <type>modification</type>
+   <version>2.03</version>
+
+   <install>
+	  <require-file name="emailpost.php" destination="$boarddir" />
+	  <require-file name="mailingList_unsub.php" destination="$sourcedir" />
+      <require-file name="mailingList_unsub.template.php" destination="$themedir" />
+	  <code>emailpost_setup.php</code>
+      <modification>modification.xml</modification>
+      
+      <readme parsebbc="true" type="inline">
+			<![CDATA[
+		This modification sets up your board to basically behave as a list serve or mailing list.  The best example to think of is "Google Groups", in that the discussion board still exists while any emails sent to the site are automatically posted or added as replies to existing topics.  The SMF Mailing List mod works best together with the SMF Notify Group mod, which allows you to subscribe multiple groups/members to a thread.  The mod now also handles attachments and routes email replies to different boards depending on the address it is sent to; in addition it allows for non-members to start one-to-one threads w/ staff like a support ticket system if wanted.
+		
+		Credits for the original mod "Post By Email" go to Matthew Wolf (a.k.a Grudge).  The mod I've created based off of the original differs in that it actually simulates a mailing list or listserv, rather than just handle emails that might be sent to the board in error.  Much more time and code has also been put into the reply extraction to handle different email encoding formats as well as HTML.  It is also capable of accepting web hooks, or HTTP POST data, for servers that may not have email piping enabled.  The listed differences are:
+
+      - Complete revamp of the reply extraction process to work with many email clients; tested with Gmail, Yahoo, Hotmail, Comcast, and numerous others.  HTML emails can be accepted and formatting preserved.  Multiple email encodings supported, including quoted-printable, 7-bit, and 64bit.
+      - Works with webhooks / mailhooks / HTTP POST data (enabled via options) for servers without email piping.  Tested with mailhooks.com, cloudmailin.com.  Currently looking to test on more providers - if you know any more, please contact me.
+      - Allows replies to any post email (announcements and notifications) by the board.  Notifications and announcements are also formatted like an email thread (previous replies quoted beneath).
+      - Sending emails with new subjects (or without the re: prefix) creates a new topic to a default board of your choosing (under Features/Options).
+      - New topics started by email are automatically announced (emailed) to members who can see that board, just as a real mailing list would do.  If the number of members able to see the board is large, this might cause a lot of server load by announcing to everyone. Then you might want to either pick a different board to start topics (with fewer members able to access) or disable this entirely (again, under Features/Options).
+      - For all announcements (posted by email or board), members are automatically subscribed so they receive replies through email and can reply back through email (can be disabled if you only want topics created by email to function as mailing lists).
+      - All posts created through email show the original poster as the sender, rather than the board.
+      - Posts announced via the forum can also show the poster as the sender (option in Features).
+	  - Attachments are supported from incoming emails and automatically attached to outgoing emails.
+	  - New topics via email can be routed to different boards (and therefore membergroups) depending on the address sent (setup in Features/Options).
+	  - Optional Support Ticket System; those who cannot access the default board can email the forum to start a thread between themselves and those who can access the board, simulating a ticket system (where those w/ access are the staff).  Non-members and guests can also do the same (optional).
+		
+		DISCLAIMERS: 
+		** The mod does not allow attachments via email for security reasons; they are stripped from the email but the reply is still kept.
+		** This mod does not check for email spoofing when matching addresses to existing members.  It is designed for smaller forum communities where this is less likely to be an issue.
+
+
+		INSTALLING ----
+		
+			There are two ways to set up the mod.  Email piping is ideal but not all servers may allow it.
+		
+		METHOD A. EMAIL PIPING:
+			This is the most straight-forward way to use the script.  You basically configure your server to forward, or "pipe," email replies to the emailpost.php script.
+			
+			For those with cPanel, go into Email > Forwarding > Advanced Options. Make the forum's email address forward to "|/home/.../path/to/SMF/emailpost.php" without quotes.
+			
+			Note to actually put the "path to" your SMF install. If you are not using cPanel, you'll need to set up piping manually, which can very depending on the server; if you are unsure, try asking your host.
+			
+			If you have PHP installed in a path other than /usr/bin/php you will need to change the top line of emailpost.php to point to the correct path. You *may* need to chmod the script "emailpost.php" to ensure it is executable (usually 755 or 777); although installation should do this automatically, you'll know this needs to be done manually if you are getting bounced emails.
+			
+		METHOD B. WEB HOOKS / MAIL HOOKS / HTTP POST
+			If your server cannot do email piping, you can use free services online that send the emails to your script for you.  At the time of this writing, they go by both the names web hooks and mail hooks, with the main feature as being able to forward emails as POST data.  One of the providers tested to work for sure with the script is mailhooks.com
+			
+			1. Have the email from the provider forward to http://yoursite.com/SMF/emailpost.php
+			2. Change your SMF webmaster email so the forum sends from the new email address.
+			3. Go to Features and Options.  Check the box next to "Use HTTP POST data instead of local email piping".
+			
+
+		IF YOU HAVE CUSTOM THEMES:
+		
+			Make sure to copy these lines into the appropriate language files:
+		
+		For yourtheme/languages/Post.english.php
+			// pftq / Mailing List: Shorter, more concise text for emails.
+			$txt['mailingList_announce'] = "Reply to This Email or View Original Post: ";
+			$txt['mailingList_announce2'] = "Unsubscribe from email replies for this topic: ";
+			$txt['mailingList_announce3'] = "Subscribe to this topic for replies to be emailed: ";
+			$txt['mailingList_event'] = "Reply to This Email or View Original Event: ";
+			$txt['notification_reply'] = "Reply to This Email or View Original Topic: ";
+			$txt['mailingList_disable'] = 'To disable all announcements, check the notification settings in your profile.';
+			$txt['mailingList_attached'] = 'Download Attachment(s):';
+			
+		For yourtheme/languages/Modifications.english.php
+			// pftq / Mailing List: Settings
+			$txt['mailingList_defaultBoard_help'] = "Board for Topics Started by Email";
+			$txt['mailingList_autoAnnounce_help'] = "Announce and Enable Notifications for Topics Started by Email";
+			$txt['mailingList_announceFrom_help'] = "Send Announcements From Poster Instead of Forum";
+			$txt['mailingList_announceNotify_help'] = "Auto Notifications for Topics Announced via Forum";
+			$txt['mailingList_autoNotify_help'] = "Auto Notifications for Members Who Reply By Email";
+			$txt['mailingList_notifyOwnReplies_help'] = "Send Notifications of Own Replies (like GoogleGroups)";
+			$txt['mailingList_numReplies_help'] = "Max Number of Replies to Quote Per Email";
+			$txt['mailingList_HTMLemails_help'] = "Allow HTML for Converting Emails to Posts";
+			$txt['mailingList_postvar_help'] = "Use HTTP POST data instead of local email piping";
+		
+		------------------
+		
+		Original "Post By Email" mod written By Matthew Wolf (a.k.a Grudge) - me@mattwolf.co.uk
+		Porting to SMF 1.1.x (later versions) and recoding to simulate mailing lists by pftq - www.pftq.com
+		Some code to close HTML tags in badly formatted emails by Milian Wolff <mail@milianw.de>
+		
+		Changelog:
+		[quote]
+		20150805 2.03
+		- Updated integration with mailread to handle gmail prescanning emails.
+		
+		20141013 2.02:
+		- Fixed guest threads not sending notification email to guest sender.
+		
+		20131119 2.01:
+		- Added html entity detecting and decoding for unrecognized email encoding types.
+		
+		20131101 2.01:
+		- Added white-space removal to reading of encoding tag due to some emails by Apple not being decoded.
+		
+		20121017 2.01:
+		- Fixed non-member/guest posts sending subscription emails from the name of the admin instead of the guest.
+		
+		20120517 2.0:
+		- Improved trimming of extracted HTML replies.
+		
+		20120428 2.0:
+		- Further improved detection of gmail replies.
+		
+		20120425 2.0:
+		- Fixed content encoding being overlooked as a result of changed parsing method from last update.
+		- Increased handling of badly encoded emails (from the user copy-pasting bits across programs) to fallback to plaintext if unable to decode.
+		
+		20120422 2.0:
+		- Tightened detection of Gmail's "On... wrote" quoting style to reduce false positives.
+		- Improved email parsing to detect content headers via first empty line, instead of looking for certain header lines that may not exist across email clients.  Fixes extra header lines sometimes appearing in messages and attachments from non-Gmail clients not parsing correctly.
+		
+		20120420 2.0:
+		- Updated to remove spam-headers ("Content-Preview:...") added by clients like Gmail recently.
+		- Decode non-member names if not ASCII, same process as with subjects.
+		
+		20120406 2.0:
+		- "Allow Guests" under features and options now lets non-members reply to any topic, not just ones they start.
+		- Fixed new line representation for SMF2 (didn't realize we used HTML now! :O )
+		- Doubled check for gmail "On.. wrote" dividers.  Seems SMF2 specific (filtered fine in SMF1).
+		
+		20120327 2.0:
+		- Added support for cloudmailin, which labels its data differently than mailhooks.
+		
+		20120304 2.0:
+		- Addressed a few notice errors that occasionally crop up from emailpost.php
+		
+		20120104-20120121 2.0:
+		- Ported to SMF2.  Compatible and works best with Notify Group / Mail Read mods.
+		- Some bugs expected, due to the amount of code needed to be ported.  Please report any you find.
+		
+		20120121 1.08:
+		- Fixed replies generating notices if Notify Group is not also installed.  Fixed missing link to disable announcements for topics generated by emails.
+		
+		20120120 1.08:
+		- Accounted for replies that strip the subject prefix from emails (so they don't start new topics).
+		
+		20120114 1.08:
+		- Added rejection of emails w/ no subjects, since that is problematic on the forum itself.
+		
+		20120113 1.08:
+		- Improved handling of POST data (if chosen as method of receiving emails) for cases where POST data is formatted as a query string instead of an array.
+		
+		20120111 1.08:
+		- Accounted for reading the 'To' header in emails sent to multiple addresses (previously only read one); affects detecting what email was sent to and re-routing to the correct board.  Also added reading of cc/bcc headers.
+		
+		20120110 1.08:
+		- New topics started by email don't extract replies; saves resources and sometimes want to start new topics quoting an old email thread.
+		- New topics by email automatically enables notifications to the thread for those subscribed to the board.
+		
+		20120109 1.08:
+		- Fixed issue w/ bouncing emails ending in a loop again if emails from non-members permitted.
+		- Added option to insert a prefix to all topic subjects created via email, such as "[Forum Board] Subject"
+		- Added one more blank row to board selection on options, was off by one on the number of blanks needed so that if the board id is larger than the number of boards, it is still selectable (SMF bug? not sure).
+		
+		20120105 1.07:
+		- Added handling of replying to forwarded emails when the fwd: prefix is removed (gmail change).
+		- Added better detection of sender name when not a member. format: email@dot.com (name)
+		
+		20120104 1.07:
+		- The mod finally supports attachments! :D
+		- Mailing List settings separated into a new page under Features and Options.
+		- Support for multiple email addresses, each routed to a different board (and thus sent to different members).
+		- Optional Support Ticket System implemented; those w/o access to the default board (even guests) can email the forum email to start a thread between themselves and those w/ access to the board (usually staff).
+		- Fixed bug where you can't pick default board with IDs > # boards.  Still not sure why that happens though.
+		- Changed sendmail to always encode subjects in base64 to preserve foreign characters; courtesy of OldShatterhand for suggesting the fix.
+		
+		20110831 1.06:
+		- Fixed auto-notify for topics started by email still offering the option to enable notification (when already notified).
+		
+		20110818 1.06:
+		- Fixed utf8-encoded subjects encoded with an encoding other than ISO-8859-1.
+		
+		20110813 1.06:
+		- Fixed utf8-encoded subjects with special characters not showing correctly from emails.
+		
+		20110714 1.06:
+		- Fixed groups implementation when integrating with the Notify Group mod; does not affect you unless you also use Notify Group.
+		
+		20110713 1.05:
+		- Updated duplicate announcements fix, which prevents announcements being sent to already notified members, to also include groups from the Notify Group plugin.
+		- Fixed announcements not being sent and errors being generated if topic is emailed in (broken by 1.04).
+		
+		20110710 1.04:
+		- Updated to accomodate the Notify Group mod's group notifications (emailing to entire groups instead of members).
+		
+		20110709 1.03:
+		- Extended mailing list functions to include board notifications, previously overlooked.  Special thanks to OldShatterhand for pointing this out.
+		- Reworded descriptions of settings a bit to group "announcements" and "board notifications" together.
+		- Fixed SMF bug where announcements are sent even if members already receive a board notification with the topic.
+		- Fixed to respect member profile settings for auto-enable notifications if they post via email.
+		
+		20110624 1.02:
+		- Cleaned up ban check a bit coding wise.  Fixed error for installation if the forum isn't using German.
+		
+		20110615 1.01:
+		- Added ban trigger checks so that banned members cannot post by email (previously only checked for email address and not usernames as well).
+		
+		20110604 1.01:
+		- Fixed bug where checking for quoted emails stops once one divider is found (bug created from optimizing).
+		- Fixed typo causing notification errors when member not found for email address.
+		- Removed some redundant code (loading language strings twice).
+		- Added German translation of settings text by Eggert Ehmke.
+		
+		20110522 1.00:
+		- Optimized code based on recommendations of SMF staff.  Check for "-- Original Message" tightened.
+		
+		20110329 0.995:
+		- Made detection of gmail "On... wrote:" quote divider less strict; allow line breaks as it happens occasionally.
+		- Fixed HTML validation on unsubscribing page template.
+		
+		20110315 0.995:
+		- Accounted for cases where header data in email may be out of the order.
+		- Narrowed "From... Subject" matching by adding ":" to lessen risk of accidentally cutting off replies.
+		
+		20110222 0.995:
+		- Added unsubscribe link at the bottom of announcements for members who might forget their login.
+		
+		20110208 0.994:
+		- Fwd: prefix now accounted for in forwarded emails (previously only accounted for fw: prefix).
+		
+		20110125 0.994:
+		- Errors no longer emailed to invalid email addresses that also reply or start topics that don't exist (to avoid creating loops against Failed Delivery notices).
+		
+		20110122 0.994:
+		- Fixed replies to topics with quotes in the subject (previously not escaped).
+		- Fixed embedded/linked images being stripped out of email replies (forgot to exclude from tag parsing).
+		- Fixed admins unable to reply to own topics if not also part of other member groups. (same issue months earlier; thought I fixed it but didn't).
+		
+		20110113 0.994:
+		- Improved stripping of trailing linebreaks at the end of a post.
+		- Removed doublespacing in HTML from Outlook due to p tags.
+		- Fixed special characters (& etc) in the subject causing new topics.
+		- Emails with subjects the same as existing topics but without "re: " now start a new topic.
+		
+		20110110 0.994:
+		- Works with mailhooks / HTTP POST data (enabled via options) for servers without email piping.  Only tested on mailhooks.com so far; looking for more providers to test with.
+		- Fixed backslashes being stripped in emails sent out; for some reason SMF does this normally.
+		- Fixed "Download Attachment" text ending with :: instead of :.
+		- Updated reply extraction to handle blockquote tags from clients like RoundCube.
+		
+		20110107 0.993:
+		- Errors are sent via SMF's mail system now (rather than PHP mail()) and also logged.
+		
+		20110104 0.993:
+		- Fixed selection of topic if two topics with same subject (should select the newer).
+		
+		20110101 0.993:
+		- Fixed HTML img tags being closed in email replies when they should be self-closing.
+		
+		20101230 0.993:
+		- Made reply extraction for gmail's "On.... *someone* wrote:" flag case sensitive to lessen possibility of catching words ending in "-on".
+		
+		20101229 0.993:
+		- Fixed converting <p> tags to plaintext (formerly not split into separate lines, including in original SMF code).
+		- Fixed trailing linebreaks not being removed in properly formatted HTML.
+		
+		20101228 0.992:
+		- Made an option out of sending notifications of your own replies (googlegroups sends your own replies to you).
+		- Fixed Content Encoding not detected on some AOL emails because of the encoding being defined above rather than below the Content-Type line.
+		
+		20101221 0.991:
+		- Fixed attachment text in notifications not showing if reply was emailed in rather than posted.
+		
+		20101218 0.991:
+		- Improved extracting HTML replies in emails.  Not as experimental anymore, should actually work.
+		- Converted symbols to entities for plain text.
+		- Optimized reply extraction so it stops checking for additional dividers after the reply has already been extracted.
+		
+		20101216 0.991:
+		- Improved converting of HTML emails to plaintext for clients that don't include plaintext versions of emails.
+		- Fixed boundary detection when parsing email body.
+		
+		20101214 0.991:
+		- Addressed variations in hotmail replies (not always extracted properly because subject/to lines inconsistent).
+		
+		20101210 0.991:
+		- Emails sent to the forum can be in HTML (option must be enabled in Admin > Features).  Unleashes a whole slew of potential problems with reply extraction so it's still experimental.
+		
+		20101206 0.99:
+		- Mod no longer extracts replies in forwarded emails, where containing the original message is desired.
+		- Fixed topics started by email having initially jumbled plaintext emails.
+		
+		20101204 0.99:
+		- Added integration with Mail Read mod for confirmation of whether replies/notifications were read.
+		
+		20101202 0.99:
+		- Added link to attachments of post within emails.
+		
+		20101201 0.99:
+		- Fixed handling of HTML-only emails (ex: some gmail messages) so that div/br tags are also converted to linebreaks.
+		
+		20101119 0.98:
+		- Added auto-notifications option for members who reply by email.  Fixed typo with code parsing Yahoo emails.  Removed excessive gapping at the bottom of plain text emails.  Made number of replies quoted customizable.
+		
+		20101015 0.97:
+		- Fixed handling of colon ":"s in original topic titles (originally stripped out and resulted in new topics).
+		
+		20100925 0.96:
+		- Handles blackberry and other base64 encoded messages properly.
+		- Removes unwanted double-spacing from Outlook messages.
+		- Reorganized code to parse emails more optimally (remove headers, decode, then extract reply).
+		
+		20100920 0.95:
+		- Handles fancy quotes by gmail properly (originally caused PHP to cut off the rest of the reply).
+		
+		20100917 0.94:
+		- Improved reply extraction to remove original text indented by ">"s in plain text emails.
+		
+		20100913 0.93:
+		- Fixed plain text emails sent via announcements and notifications in that they originally had linebreaks stripped out along with the tags.
+		- Improved reply extraction to account for extra line spacing from gmail replies.
+		
+		20100904 0.92:
+		- Improvements in extracting replies from emails (extract only after converting quoted text).
+		- No permission checks on admins, due to some users' boards not giving reply permissions to administrators.
+		
+		20100815 0.91:
+		- Quoted replies in the notifications look much nicer now (no link, just the author and date like a regular email).
+		- Enabling notifications for announced topics is an option now.
+		- Having announcements sent from the poster's name instead of the forum is also an option (it was commented out previously but I found there were a few sites where it'd be useful to have/not have).
+		- chmod function added to the setup, so the user doesn't necessarily have to change the emailpost.php permissions.  Not a major change but it's convenient.
+		
+		20100609 0.90:
+		- First version, main features and differences from "Post By Email".
+		[/quote]
+			]]>
+		</readme>
+   </install>
+   
+   <uninstall>
+	  <readme type="inline">
+		Uninstall will remove all the changes made by the modification (this must be done before upgrades).
+		Note that you will need to remove email piping yourself if you set that up and want to disable this mod entirely (as in not just temporarily for upgrades).
+		</readme>
+	  <remove-file name="$boarddir/emailpost.php" />
+	  <remove-file name="$sourcedir/mailingList_unsub.php" />
+	  <remove-file name="$themedir/mailingList_unsub.template.php" />
+      <modification reverse="true">modification.xml</modification>
+   </uninstall>
+   
+</package-info>

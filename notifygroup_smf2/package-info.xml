@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE package-info SYSTEM "http://www.simplemachines.org/xml/package-info">
+<package-info xmlns="http://www.simplemachines.org/xml/package-info" xmlns:smf="http://www.simplemachines.org/">
+   <id>pftq:notifygroup</id>
+   <name>SMF Notify Group</name>
+   <type>modification</type>
+   <version>2.2</version>
+
+   <install>
+      <readme>README.txt</readme>
+      <require-file name="notifygroup.php" destination="$sourcedir" />
+      <require-file name="notifygroup.template.php" destination="$themedir" />
+      <require-file name="notifygroup_unsub.php" destination="$sourcedir" />
+      <require-file name="notifygroup_unsub.template.php" destination="$themedir" />
+      <code>notifygroup_setup.php</code>
+      <modification>modification.xml</modification>
+   </install>
+   
+   <uninstall>
+      <remove-file name="$sourcedir/notifygroup.php" />
+      <remove-file name="$themedir/notifygroup.template.php" />
+      <remove-file name="$sourcedir/notifygroup_unsub.php" />
+      <remove-file name="$themedir/notifygroup_unsub.template.php" />
+      <modification reverse="true">modification.xml</modification>
+   </uninstall>
+   
+</package-info>

@@ -1,0 +1,157 @@
+<?xml version="1.0"?>
+<!DOCTYPE modification SYSTEM "http://www.simplemachines.org/xml/modification">
+<modification xmlns="http://www.simplemachines.org/xml/modification" xmlns:smf="http://www.simplemachines.org/">
+	<id>pftq:notifygroup</id>
+	<version>2.2</version>
+	
+	<file name="$boarddir/index.php">
+		<operation>
+			<search position="before"><![CDATA['notify' => array('Notify.php', 'Notify'),]]></search>
+			<add><![CDATA[
+					'notifygroup' => array('notifygroup.php', 'notifygroup'),
+					'disableNotify' => array('notifygroup_unsub.php', 'notifygroup_unsub'),
+]]></add>
+		</operation>	
+	</file>
+	
+	<file name="$sourcedir/Post.php">
+		<operation>
+			<search position="replace"><![CDATA[mem.id_post_group
+		FROM {db_prefix}log_notify AS ln
+			INNER JOIN {db_prefix}boards AS b ON (b.id_board = ln.id_board)
+			INNER JOIN {db_prefix}members AS mem ON (mem.id_member = ln.id_member)]]></search>
+			<add><![CDATA[mem.id_post_group, ng.id_board as ng_board
+		FROM {db_prefix}members AS mem
+			CROSS JOIN {db_prefix}boards AS b
+			LEFT JOIN {db_prefix}log_notify AS ln on (ln.id_board=b.id_board and mem.id_member = ln.id_member)
+			LEFT JOIN {db_prefix}notifygroup as ng on (ng.id_board=b.id_board and (
+				 mem.id_group=ng.id_group OR
+				 mem.id_post_group=ng.id_group OR
+				 FIND_IN_SET(ng.id_group, mem.additional_groups)))]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[ln.id_board IN ({array_int:board_list})]]></search>
+			<add><![CDATA[(ln.id_board IN ({array_int:board_list}) OR ng.id_board IN ({array_int:board_list}))]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[ORDER BY mem.lngfile]]></search>
+			<add><![CDATA[AND mem.notify_announcements=1
+		GROUP BY mem.id_member
+		ORDER BY mem.lngfile]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[		if ($rowmember['id_group'] != 1)]]></search>
+			<add><![CDATA[if($rowmember['ng_board']) $rowmember['id_board']=$rowmember['ng_board'];
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA['UNSUBSCRIBELINK' => $scripturl . '?action=notifyboard;board=' . $topicData[$key]['board'] . '.0',]]></search>
+			<add><![CDATA['UNSUBSCRIBELINK' => ($rowmember['ng_board']==0? $scripturl . '?action=notifyboard;board=' . $topicData[$key]['board'] . ".0":$scripturl."?action=disableNotify"),]]></add>
+		</operation>	
+		
+	</file>
+	
+	<file name="$sourcedir/Subs-Post.php">
+		<operation>
+			<search position="replace"><![CDATA[ln.id_topic
+		FROM {db_prefix}log_notify AS ln
+			INNER JOIN {db_prefix}members AS mem ON (mem.id_member = ln.id_member)
+			INNER JOIN {db_prefix}topics AS t ON (t.id_topic = ln.id_topic)
+			INNER JOIN {db_prefix}boards AS b ON (b.id_board = t.id_board)]]></search>
+			<add><![CDATA[ln.id_topic, ng.id_topic as ng_topic
+		FROM {db_prefix}members AS mem
+			CROSS JOIN {db_prefix}boards AS b
+			CROSS JOIN {db_prefix}topics AS t
+			LEFT JOIN {db_prefix}log_notify AS ln on (ln.id_topic = t.id_topic and ln.id_member = mem.id_member)
+			LEFT JOIN {db_prefix}notifygroup as ng on (ng.id_topic = t.id_topic and (
+				 mem.id_group=ng.id_group OR
+				 mem.id_post_group=ng.id_group OR
+				 FIND_IN_SET(ng.id_group, mem.additional_groups)))]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[AND ln.id_member != {int:current_member}]]></search>
+			<add><![CDATA[AND mem.id_member != {int:current_member}]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[WHERE ln.id_topic IN ({array_int:topic_list})]]></search>
+			<add><![CDATA[WHERE b.id_board=t.id_board AND (ln.id_topic IN ({array_int:topic_list}) OR ng.id_topic in ({array_int:topic_list}))]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA[ORDER BY mem.lngfile]]></search>
+			<add><![CDATA[AND mem.notify_announcements=1
+			GROUP BY mem.id_member
+			ORDER BY mem.lngfile]]></add>
+		</operation>
+		
+		<operation>
+			<search position="after"><![CDATA[		// Don't do the excluded...]]></search>
+			<add><![CDATA[if($row['ng_topic']) $row['id_topic']=$row['ng_topic'];
+]]></add>
+		</operation>
+		
+		<operation>
+			<search position="replace"><![CDATA['UNSUBSCRIBELINK' => $scripturl . '?action=notify;topic=' . $row['id_topic'] . '.0',]]></search>
+			<add><![CDATA['UNSUBSCRIBELINK' => ($row['ng_topic']==0? $scripturl . '?action=notify;topic=' . $row['id_topic'] . '.0': $scripturl."?action=disableNotify"),]]></add>
+		</operation>		
+	</file>
+	
+	<file name="$themedir/Display.template.php">	
+
+		<operation>
+			<search position="after"><![CDATA[	// Allow adding new buttons easily.]]></search>
+			<add><![CDATA[
+				// pftq: Notify group
+				if($context['can_moderate_forum'])
+				$normal_buttons['notifygroup'] = array('text' => 'notifygroup', 'image' => '', 'lang' => true, 'url' => $scripturl . '?action=notifygroup;topic='.$context['current_topic']);
+		]]></add>
+		</operation>	
+	</file>
+	
+	<file name="$themedir/MessageIndex.template.php">	
+
+		<operation>
+			<search position="after"><![CDATA[	// They can only mark read if they are logged in and it's enabled!]]></search>
+			<add><![CDATA[
+				// pftq: Notify group
+				if($context['can_moderate_forum'])
+				$normal_buttons['notifygroup'] = array('text' => 'notifygroup', 'image' => 'markread.gif', 'lang' => true, 'url' => $scripturl . '?action=notifygroup;topic=b' . $context['current_board'] . '.0');
+		]]></add>
+		</operation>	
+	</file>
+	
+	<file name="$themedir/languages/Modifications.english.php">
+		<operation>
+			<search position="end" />
+			<add><![CDATA[
+$txt["notifygroup"] = "Notify Group";
+$txt["select_topic"] = "Select board or topic";
+$txt["reset"] = "Reset";
+$txt["batch"] = "Batch";
+$txt["go_to_topic"] = "Go to Topic";
+$txt["go_to_board"] = "Go to Board";
+$txt["reselect_group"] = "Reselect Membergroups";
+$txt["select_group"] = "Select membergroups to ";
+$txt["select_member"] = "Select members to ";
+$txt["notify"] = "Notify";
+$txt["denotify"] = "De-notify";
+$txt["receiving_notification"] = "Groups/Members receiving notification for ";
+
+// Unsubscribe Option
+$txt['notifygroup_prefUpdated'] = 'Preferences updated for: ';
+$txt['notifygroup_emailNotExist'] = 'Sorry, that email does not exist.';
+$txt['notifygroup_enterEmail'] = 'Enter the email you wish to update preferences for.';
+$txt['notifygroup_setOff'] = 'Disable Email Announcements/Notifications';
+$txt['notifygroup_setOn'] = 'Enable Email Announcements/Notifications';
+
+]]></add>
+		</operation>	
+	</file>
+	
+</modification>
