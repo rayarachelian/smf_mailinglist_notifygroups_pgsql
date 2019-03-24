@@ -1125,7 +1125,7 @@ if($topic_info['id_topic']>0) {
 	
 	// Enable notifications for the person who replied?
 	if($modSettings['mailinglist_autonotify'])
-		$smcFunc['db_query']('', "INSERT INTO {db_prefix}log_notify (id_member, id_topic) VALUES (".$id_member.", ".$topic_info['id_topic']") ON DUPLICATE DO NOTHING");
+		$smcFunc['db_query']('', "INSERT INTO {db_prefix}log_notify (id_member, id_topic) VALUES (".$id_member.", ".$topic_info['id_topic']") ON CONFLICT DO NOTHING");
 		
 	sendNotifications($topic_info['id_topic'], 'reply'); // Moddie: send out notifications as well
 }
